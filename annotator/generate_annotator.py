@@ -1,19 +1,13 @@
 import json, sys, settings
 import lasair, os
 from astropy.io import fits
-# from astropy.io.fits import getdata
 import numpy as np
 sys.path.append("..") 
 import build_dataset
 import ztf_image_pipeline 
-from sherlock_host_pipeline import get_potential_host
-from main import predict_new_transient
-from obj_meta_pipeline import collect_meta
 from host_meta_pipeline import PS1catalog_host
-from obj_meta_pipeline import collect_meta, get_host_mag
 from preprocessing import single_transient_preprocessing
 from tensorflow.keras import models
-import datetime
 
 NEEDLE_PATH = '../lasair_20240105/'
 LABEL_PATH = NEEDLE_PATH + '/label_dict_equal_test.json'
@@ -25,8 +19,6 @@ BClassifier = models.load_model(BCLASSIFIER_PATH)
 
 
 def get_obj_meta(candidates, candi_idx, disc_mjd, disc_mag, host_mag):
-    
-    # new_row = [d_row['candi_mag'].values[0],d_row['disc_mag'].values[0], d_row['delta_t_discovery'].values[0], d_row['delta_t_recent'].values[0], d_row['delta_mag_discovery'].values[0], d_row['delta_mag_recent'].values[0], d_row['delta_host_mag'].values[0]] 
     
     candi_mag = candidates[candi_idx]['magpsf']
     delta_t_discovery = round(candidates[candi_idx]['jd'] - disc_mjd - 2400000.5, 5)
