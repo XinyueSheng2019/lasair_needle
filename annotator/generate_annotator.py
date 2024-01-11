@@ -15,9 +15,9 @@ from preprocessing import single_transient_preprocessing
 from tensorflow.keras import models
 import datetime
 
-NEEDLE_PATH = '/Users/xinyuesheng/Documents/astro_projects/scripts/classifier_v2/model_with_data/r_band/lasair_20240105/'
-LABEL_PATH = '../../model_labels/label_dict_equal_test.json'
-BCLASSIFIER_PATH = '/Users/xinyuesheng/Documents/astro_projects/scripts/bogus_classifier/models/bogus_model_without_zscale'
+NEEDLE_PATH = '../lasair_20240105/'
+LABEL_PATH = NEEDLE_PATH + '/label_dict_equal_test.json'
+BCLASSIFIER_PATH = '../bogus_model_without_zscale'
 NEEDLE_OBJ_PATH = 'needle_objects'
 LABEL_LIST = ['SN', 'SLSN-I', 'TDE']
 
