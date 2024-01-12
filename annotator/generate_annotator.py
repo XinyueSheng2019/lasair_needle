@@ -17,6 +17,11 @@ LABEL_LIST = ['SN', 'SLSN-I', 'TDE']
 
 BClassifier = models.load_model(BCLASSIFIER_PATH)
 
+# add directories 
+if os.path.exists(NEEDLE_OBJ_PATH) is False:
+    os.makedirs(NEEDLE_OBJ_PATH)
+if os.path.exists(NEEDLE_OBJ_PATH + '/hosts') is False:
+    os.makedirs(NEEDLE_OBJ_PATH+ '/hosts')
 
 def get_obj_meta(candidates, candi_idx, disc_mjd, disc_mag, host_mag):
     
