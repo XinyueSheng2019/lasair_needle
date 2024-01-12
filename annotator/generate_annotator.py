@@ -2,7 +2,7 @@ import json, sys, settings
 import lasair, os
 from astropy.io import fits
 import numpy as np
-sys.path.append("..") 
+sys.path.append("../source") 
 import build_dataset
 import ztf_image_pipeline 
 from host_meta_pipeline import PS1catalog_host

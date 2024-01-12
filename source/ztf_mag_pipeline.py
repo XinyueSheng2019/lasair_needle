@@ -1,11 +1,7 @@
 #! /usr/bin/env python
 
-from logging import raiseExceptions
-import pandas as pd 
-import numpy as np
 import os
 import json
-from multiprocessing import Pool,cpu_count
 import lasair
 
 

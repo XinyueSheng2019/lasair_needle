@@ -2,7 +2,7 @@
 # from ctypes.wintypes import tagMSG
 # from logging import raiseExceptions
 # from multiprocessing import managers
-from tkinter.tix import COLUMN
+
 import pandas as pd
 import numpy as np
 import json

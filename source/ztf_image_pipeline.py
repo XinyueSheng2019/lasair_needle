@@ -5,29 +5,22 @@ Build a .JSON meta file for each object.
 '''
 
 import os
-import sys
 import re
 import subprocess
 import errno
-import argparse
 import csv
 import json
 from datetime import datetime as dt
-import multiprocessing
 from multiprocessing import Pool,cpu_count
 from itertools import repeat
 import pandas as pd 
 import numpy as np 
 
-import astropy
 from astropy.time import Time
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.wcs.wcs import WCS
-from astropy.coordinates import SkyCoord
-import matplotlib.pyplot as plt
 from astropy.utils.data import get_pkg_data_filename
-from astropy.modeling.rotations import Rotation2D
 from ztf_mag_pipeline import get_json
 
 
