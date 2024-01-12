@@ -1,4 +1,4 @@
-#! ~/anaconda3/envs/astro_py8/bin/python python3
+
 '''
 User interaction
 achieve below functions:
