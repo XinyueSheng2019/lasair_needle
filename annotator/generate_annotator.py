@@ -197,9 +197,11 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
     # from the objectId, we can get all the info that Lasair has
     objectInfo = L.objects([objectId])[0]
     if not objectInfo:
+        print('object %s is removed as there is no information.' % objectId)
         return 0
     
     if remove_AGN(objectInfo['candidates']):
+        print('object %s is removed as it could be an AGN.' % objectId)
         return 0
 
     img_data, meta_data = collect_data_from_lasair(objectId, objectInfo, band = 'r')
@@ -230,6 +232,8 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
             url='')
         print(objectId, '-- annotated!')
         return 1
+    
+    
     # get all images
 
     # print(objectInfo.keys())
@@ -249,8 +253,6 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
     # STEP 3: feed into NEEDLE and get results
     
 
-        
-    return 1
 
 #####################################
 # first we set up pulling the stream from Lasair
