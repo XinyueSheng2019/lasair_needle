@@ -8,7 +8,7 @@ import ztf_image_pipeline
 from host_meta_pipeline import PS1catalog_host
 from preprocessing import single_transient_preprocessing
 from tensorflow.keras import models
-import datetime
+from datetime import datetime
 
 NEEDLE_PATH = '/Users/xinyuesheng/Documents/astro_projects/scripts/classifier_v2/model_with_data/r_band/lasair_20240105/'
 LABEL_PATH = '../../model_labels/label_dict_equal_test.json'
@@ -21,6 +21,11 @@ if os.path.exists(NEEDLE_OBJ_PATH) is False:
     os.makedirs(NEEDLE_OBJ_PATH)
 if os.path.exists(NEEDLE_OBJ_PATH + '/hosts') is False:
     os.makedirs(NEEDLE_OBJ_PATH+ '/hosts')
+if os.path.exists('logs') is False:
+    os.makedirs('logs')
+
+# set a log file for recording the objects
+log = open('logs/log_' + datetime.today().strftime('%Y-%m-%d-%H-%M-%S') + '.txt', 'w')
 
 BClassifier = models.load_model(BCLASSIFIER_PATH)
 
@@ -103,10 +108,9 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
         fid = 2
 
     candidates = objectInfo['candidates']
-
     
     candidates = [x for x in candidates if 'image_urls' in x.keys() and x['fid'] == fid]
-    
+    # print(candidates)
     
     disdate = objectInfo['objectData']['discMjd']
     discFilter = objectInfo['objectData']['discFilter']
@@ -155,23 +159,22 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
                 host_meta = build_dataset.add_host_meta(objectId, host_path = NEEDLE_OBJ_PATH + '/hosts', only_complete = True)
                 sherlock_meta = [objectInfo['sherlock']['separationArcsec']]
                 if host_meta is None:
-                    print('Host meta not found.')
+                    log.write('object %s host meta not found.\n' % objectId)
                     return None, None
                 else:
-
                     meta_data = get_obj_meta(candidates, idx, disdate, discMag, host_meta[1]) + host_meta + sherlock_meta
                     meta_data = scaling_meta(meta_data, NEEDLE_PATH)
-
                     return img_data, meta_data
+            else:
+                log.write('object %s images do not pass criteria.\n' % objectId)
+                return None, None
         else:
-            print('object %s images no found' % objectId)
+            log.write('object %s images no found.\n' % objectId)
             return None, None
 
     else:
-        print('candidates for %s not found.\n' % objectId)
+        log.write('candidates for %s not found.\n' % objectId)
         return None, None
-    
-    # img_data, meta_data = single_transient_preprocessing(img_data, meta_data)
     
 
 
@@ -195,23 +198,21 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
     # from the objectId, we can get all the info that Lasair has
     objectInfo = L.objects([objectId])[0]
 
-    if not objectInfo:
-        print('object %s is removed as there is no information.' % objectId)
+    if objectInfo is None:
+        log.write('object %s is removed as there is no information.\n' % objectId)
         return 0
     
     if remove_AGN(objectInfo['candidates']):
-        print('object %s is removed as it could be an AGN.' % objectId)
+        log.write('object %s is removed as it is older than 60 days.\n' % objectId)
         return 0
 
+    # print(objectId, objectInfo)
     img_data, meta_data = collect_data_from_lasair(objectId, objectInfo, band = 'r')
 
     if img_data is None or meta_data is None:
-        print('object %s failed to be annocated.' % objectId)
         return 0
     else:
         results = needle_prediction(img_data, meta_data)
-    
-        # print(results)
         
         classdict      = {'SN': str(results[0][0]), 'SLSN-I': str(results[0][1]), 'TDE': str(results[0][2])} 
         if np.max(results[0]) >= threhold:
@@ -230,6 +231,7 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
             classdict=classdict, 
             url='')
         print(objectId, '-- annotated!')
+        log.write('object %s -- annotated!\n' % objectId)
         return 1
     
     # get all images
@@ -255,6 +257,8 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
     # return 1
 
 #####################################
+    
+
 # first we set up pulling the stream from Lasair
 # a fresh group_id gets all, an old group_id starts where it left off
 group_id = settings.GROUP_ID
@@ -272,8 +276,9 @@ L = lasair.lasair_client(settings.API_TOKEN)
 # TOPIC_OUT is an annotator owned by a user. API_TOKEN must be that users token.
 topic_out = settings.TOPIC_OUT
 
+
 # just get a few to start
-max_alert = 500
+max_alert = 100
 
 n_alert = n_annotate = 0
 while n_alert < max_alert:
@@ -287,7 +292,9 @@ while n_alert < max_alert:
     objectId       = jsonmsg['objectId']
 
     n_alert += 1
-    n_annotate += handle_object(objectId, L, topic_out)
+    n_annotate += handle_object(objectId, L, topic_out, 0.75)
 
+
+log.close()
 print('Annotated %d of %d objects' % (n_annotate, n_alert))
 
