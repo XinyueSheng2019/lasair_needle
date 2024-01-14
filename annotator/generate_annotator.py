@@ -2,26 +2,28 @@ import json, sys, settings
 import lasair, os
 from astropy.io import fits
 import numpy as np
-sys.path.append("../source") 
+sys.path.append("..") 
 import build_dataset
 import ztf_image_pipeline 
 from host_meta_pipeline import PS1catalog_host
 from preprocessing import single_transient_preprocessing
 from tensorflow.keras import models
+import datetime
 
-NEEDLE_PATH = '../lasair_20240105/'
-LABEL_PATH = NEEDLE_PATH + '/label_dict_equal_test.json'
-BCLASSIFIER_PATH = '../bogus_model_without_zscale'
+NEEDLE_PATH = '/Users/xinyuesheng/Documents/astro_projects/scripts/classifier_v2/model_with_data/r_band/lasair_20240105/'
+LABEL_PATH = '../../model_labels/label_dict_equal_test.json'
+BCLASSIFIER_PATH = '/Users/xinyuesheng/Documents/astro_projects/scripts/bogus_classifier/models/bogus_model_without_zscale'
 NEEDLE_OBJ_PATH = 'needle_objects'
 LABEL_LIST = ['SN', 'SLSN-I', 'TDE']
-
-BClassifier = models.load_model(BCLASSIFIER_PATH)
 
 # add directories 
 if os.path.exists(NEEDLE_OBJ_PATH) is False:
     os.makedirs(NEEDLE_OBJ_PATH)
 if os.path.exists(NEEDLE_OBJ_PATH + '/hosts') is False:
     os.makedirs(NEEDLE_OBJ_PATH+ '/hosts')
+
+BClassifier = models.load_model(BCLASSIFIER_PATH)
+
 
 def get_obj_meta(candidates, candi_idx, disc_mjd, disc_mag, host_mag):
     
@@ -101,7 +103,7 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
         fid = 2
 
     candidates = objectInfo['candidates']
-    # print(candidates)
+
     
     candidates = [x for x in candidates if 'image_urls' in x.keys() and x['fid'] == fid]
     
@@ -109,10 +111,7 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
     disdate = objectInfo['objectData']['discMjd']
     discFilter = objectInfo['objectData']['discFilter']
 
-    # print(objectInfo)
-
-
-    if len(candidates) > 1:
+    if len(candidates) >= 1:
         mags = np.array([m['magpsf']for m in candidates])
         idx = np.argmin(mags)
 
@@ -124,7 +123,8 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
 
         flag = False
         
-        while flag == False and idx < len(candidates)-1 and idx >= 0:
+        while flag is False and idx <= len(candidates)-1 and idx >= 0:
+      
             peak_urls = candidates[idx]['image_urls']
             science_url = peak_urls['Science']
             template_url = peak_urls['Template']
@@ -136,23 +136,22 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
             ref_fname = 'ref_ztf_peak.fits'
             ref_filename = obsjd_path + '/' + ref_fname
 
-            if not os.path.exists(sci_filename):
-                os.system("curl -o %s %s" % (sci_filename, science_url))
-                os.system("curl -o %s %s" % (ref_filename, template_url))
+            # if not os.path.exists(sci_filename):
+            os.system("curl -o %s %s" % (sci_filename, science_url))
+            os.system("curl -o %s %s" % (ref_filename, template_url))
             
-            if os.path.getsize(sci_filename) < 800 or os.path.getsize(ref_filename) < 800:
-                flag = False
+            if os.path.getsize(sci_filename) < 800 or os.path.getsize(ref_filename) < 800: 
                 idx += 1
             else:
                 flag = True
+                break
                 
         if flag:
 
             img_data = get_obj_image(sci_filename, ref_filename, None, BClassifier)
-
             if img_data is not None:    
                 host_ra, host_dec = objectInfo['sherlock']['raDeg'], objectInfo['sherlock']['decDeg']
-                PS1catalog_host(_id = objectId, _ra = host_ra, _dec = host_dec, save_path=NEEDLE_OBJ_PATH + '/hosts')
+                PS1catalog_host(_id = objectId, _ra = host_ra, _dec = host_dec, save_path = NEEDLE_OBJ_PATH + '/hosts')
                 host_meta = build_dataset.add_host_meta(objectId, host_path = NEEDLE_OBJ_PATH + '/hosts', only_complete = True)
                 sherlock_meta = [objectInfo['sherlock']['separationArcsec']]
                 if host_meta is None:
@@ -161,7 +160,6 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
                 else:
 
                     meta_data = get_obj_meta(candidates, idx, disdate, discMag, host_meta[1]) + host_meta + sherlock_meta
-
                     meta_data = scaling_meta(meta_data, NEEDLE_PATH)
 
                     return img_data, meta_data
@@ -180,7 +178,6 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
 def needle_prediction(img_data, meta_data):
     
     img_data, meta_data = single_transient_preprocessing(img_data, meta_data)
-    # print(img_data.shape, meta_data.shape)
 
     # average 10 models
     emsemble_results = []
@@ -194,8 +191,10 @@ def needle_prediction(img_data, meta_data):
 
 # This function deals with an object once it is received from Lasair
 def handle_object(objectId, L, topic_out, threhold = 0.75):
+
     # from the objectId, we can get all the info that Lasair has
     objectInfo = L.objects([objectId])[0]
+
     if not objectInfo:
         print('object %s is removed as there is no information.' % objectId)
         return 0
@@ -233,7 +232,6 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
         print(objectId, '-- annotated!')
         return 1
     
-    
     # get all images
 
     # print(objectInfo.keys())
@@ -253,6 +251,8 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
     # STEP 3: feed into NEEDLE and get results
     
 
+        
+    # return 1
 
 #####################################
 # first we set up pulling the stream from Lasair
