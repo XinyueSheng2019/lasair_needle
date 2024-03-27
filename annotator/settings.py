@@ -1,5 +1,5 @@
 TOPIC_IN = 'lasair_750NEEDLETEST'
 #GROUP_ID = 'lasair_needle_th_0112'
-GROUP_ID = 'lasair_needle_db3'
+GROUP_ID = 'lasair_needle_db3_01'
 API_TOKEN = 'f7b4b64c53168512a4bcba06827c6c0015e9c9f6'
 TOPIC_OUT= 'NEEDLE'
