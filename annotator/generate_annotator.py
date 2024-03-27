@@ -93,7 +93,7 @@ def scaling_meta(meta_data, scaling_file_path):
     '''
     assume normaliztion method 1 in this case.
     '''
-    f = open(scaling_file_path+'/scaling_data.json')
+    f = open(scaling_file_path+'scaling_data.json')
     scaling = json.load(f)
     f.close()
     mt_mean = np.array(scaling['mean'])
