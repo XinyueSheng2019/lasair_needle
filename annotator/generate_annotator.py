@@ -10,8 +10,9 @@ from preprocessing import single_transient_preprocessing
 from tensorflow.keras import models
 from datetime import datetime
 
-NEEDLE_PATH = '../lasair_20240105/'
-LABEL_PATH = NEEDLE_PATH + 'label_dict_equal_test.json'
+NEEDLE_PATH_TH = '../lasair_20240105/'
+NEEDLE_PATH_T = '../needle_t_v13v1/'
+LABEL_PATH = NEEDLE_PATH_TH  + 'label_dict_equal_test.json'
 BCLASSIFIER_PATH = '../bogus_model_without_zscale'
 NEEDLE_OBJ_PATH = 'needle_objects'
 LABEL_LIST = ['SN', 'SLSN-I', 'TDE']
@@ -41,10 +42,12 @@ def get_obj_meta(candidates, candi_idx, disc_mjd, disc_mag, host_mag):
     else:
         delta_t_recent = delta_t_discovery
         delta_mag_recent = delta_mag_discovery
-    delta_host_mag = round(candi_mag - host_mag, 5)
     ratio_recent, ratio_disc = build_dataset.get_ratio(delta_mag_recent, delta_t_recent, delta_mag_discovery, delta_t_discovery)
-
-    return [candi_mag, disc_mag, delta_mag_discovery, delta_t_discovery, ratio_recent, ratio_disc, delta_host_mag] 
+    if host_mag is None:
+        return [candi_mag, disc_mag, delta_mag_discovery, delta_t_discovery, ratio_recent, ratio_disc] 
+    else:
+        delta_host_mag = round(candi_mag - host_mag, 5)
+        return [candi_mag, disc_mag, delta_mag_discovery, delta_t_discovery, ratio_recent, ratio_disc, delta_host_mag] 
    
 
 def get_obj_image(sci_filename, ref_filename, diff_filename, BClassifier):
@@ -159,37 +162,48 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
                 host_meta = build_dataset.add_host_meta(objectId, host_path = NEEDLE_OBJ_PATH + '/hosts', only_complete = True)
                 sherlock_meta = [objectInfo['sherlock']['separationArcsec']]
                 if host_meta is None:
-                    log.write('object %s host meta not found.\n' % objectId)
-                    return None, None
+                    log.write('object %s host meta not found, use NEEDLE-T\n' % objectId)
+                    meta_data = get_obj_meta(candidates, idx, disdate, discMag, None)
+                    meta_data = scaling_meta(meta_data, NEEDLE_PATH_T)
+                    return img_data, meta_data, 'T'
+             
                 else:
                     meta_data = get_obj_meta(candidates, idx, disdate, discMag, host_meta[1]) + host_meta + sherlock_meta
-                    meta_data = scaling_meta(meta_data, NEEDLE_PATH)
-                    return img_data, meta_data
+                    meta_data = scaling_meta(meta_data, NEEDLE_PATH_TH)
+                    return img_data, meta_data, 'TH'
             else:
                 log.write('object %s images do not pass criteria.\n' % objectId)
-                return None, None
+                return None, None, None
         else:
             log.write('object %s images no found.\n' % objectId)
-            return None, None
+            return None, None, None
 
     else:
         log.write('candidates for %s not found.\n' % objectId)
-        return None, None
+        return None, None, None
     
 
 
 def needle_prediction(img_data, meta_data):
     
-    img_data, meta_data = single_transient_preprocessing(img_data, meta_data)
-
-    # average 10 models
-    emsemble_results = []
-    for i in np.arange(10):
-        TSClassifier = models.load_model(NEEDLE_PATH + 'seed_456_model_128_3_64_3_nm1_lasair_' + str(i))
-        results = TSClassifier.predict({'image_input': img_data, 'meta_input': meta_data})
-        emsemble_results.append(results)
-    emsemble_results = np.array(emsemble_results)
-    return np.mean(emsemble_results, axis = 0)
+    img_data, meta_data, findhost = single_transient_preprocessing(img_data, meta_data)
+    if findhost == 'TH':
+        # average 10 models
+        emsemble_results = []
+        for i in np.arange(10):
+            TSClassifier = models.load_model(NEEDLE_PATH_TH + 'seed_456_model_128_3_64_3_nm1_lasair_' + str(i))
+            results = TSClassifier.predict({'image_input': img_data, 'meta_input': meta_data})
+            emsemble_results.append(results)
+        emsemble_results = np.array(emsemble_results)
+        return np.mean(emsemble_results, axis = 0)
+    elif findhost == 'T':
+        emsemble_results = []
+        for i in np.arange(10):
+            TSClassifier = models.load_model(NEEDLE_PATH_T + 'seed_456_model_128_3_64_3_nm1_' + str(i))
+            results = TSClassifier.predict({'image_input': img_data, 'meta_input': meta_data})
+            emsemble_results.append(results)
+        emsemble_results = np.array(emsemble_results)
+        return np.mean(emsemble_results, axis = 0)
 
 
 # This function deals with an object once it is received from Lasair
