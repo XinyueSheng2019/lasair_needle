@@ -184,9 +184,9 @@ def collect_data_from_lasair(objectId, objectInfo, band = 'r'):
     
 
 
-def needle_prediction(img_data, meta_data):
+def needle_prediction(img_data, meta_data, findhost):
     
-    img_data, meta_data, findhost = single_transient_preprocessing(img_data, meta_data)
+    img_data, meta_data = single_transient_preprocessing(img_data, meta_data)
     if findhost == 'TH':
         # average 10 models
         emsemble_results = []
@@ -221,19 +221,19 @@ def handle_object(objectId, L, topic_out, threhold = 0.75):
         return 0
 
     # print(objectId, objectInfo)
-    img_data, meta_data = collect_data_from_lasair(objectId, objectInfo, band = 'r')
+    img_data, meta_data, findhost = collect_data_from_lasair(objectId, objectInfo, band = 'r')
 
     if img_data is None or meta_data is None:
         return 0
     else:
-        results = needle_prediction(img_data, meta_data)
+        results = needle_prediction(img_data, meta_data, findhost)
         
         classdict      = {'SN': str(results[0][0]), 'SLSN-I': str(results[0][1]), 'TDE': str(results[0][2])} 
         if np.max(results[0]) >= threhold:
             classification = LABEL_LIST[np.argmax(results[0])]
         else:
             classification = 'unclear'
-        explanation    = 'lasiar-NEEDLE-TH prediction.'
+        explanation    = 'lasiar-NEEDLE prediction.'
 
         # now we annotate the Lasair data with the classification
         L.annotate(
