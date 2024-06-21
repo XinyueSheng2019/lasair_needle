@@ -31,6 +31,31 @@ log = open('logs/log_' + datetime.today().strftime('%Y-%m-%d-%H-%M-%S') + '.txt'
 BClassifier = models.load_model(BCLASSIFIER_PATH)
 
 
+def find_earliest_discovery_mjd(objectInfo):
+    # some new objects have forced photometry, which the discovery dates could be earlier.
+    # this functions check the earliest date that the event is rising from the forced information.
+    # for g and r band, find the lastest detection date that the diff > 0, and choose the earliest among two dates as the final pre-discovery date
+    def find_earliest_disc_each_band(forced_info, fid):
+        #### NEED TO FIX
+        b_info = np.array([(x['mjd'], x['forcediffimflux']) for x in forced_info if x['fid'] == fid and x['ranr'] > -99999.0], 
+                        dtype=[('mjd', 'f8'), ('forcediffimflux', 'f8')])
+        b_info_sort = np.sort(b_info, order='mjd')
+        pre_disc_mjd = b_info_sort[0][0]
+        n = 0
+        while n < b_info_sort.shape[0] - 1:
+            if b_info_sort[n][1] < 0 and b_info_sort[n+1][1] > 0:
+                 pre_disc_mjd =  b_info_sort[n+1][0]
+            n += 1
+        return pre_disc_mjd
+
+    if 'forcedphot' in objectInfo.keys():
+        forced_info = objectInfo['forcedphot']
+        max_mjd_1 = find_earliest_disc_each_band(forced_info, 1)
+        max_mjd_2 = find_earliest_disc_each_band(forced_info, 2)
+        print(f'g band pre_disc is {max_mjd_1}, r band pre_disc is {max_mjd_2}.')
+        return max_mjd_1 if max_mjd_1 >= max_mjd_2 else max_mjd_2 
+
+
 def get_obj_meta(candidates, candi_idx, disc_mjd, disc_mag, host_mag):
     
     candi_mag = candidates[candi_idx]['magpsf']
