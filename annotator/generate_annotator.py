@@ -255,12 +255,12 @@ def collect_data_from_lasair(objectId, objectInfo):
         
     # delete image files
     shutil.rmtree(obsjd_path)
-    print('test findhost: ', len(meta_r), len(meta_mixed), find_host)
+ 
     return img_data, meta_r, meta_mixed, find_host
     
 
 def needle_th_prediction(img_data, meta_r, meta_mixed):
-    print('test needle_th: ', len(meta_r), len(meta_mixed))
+
     # Object with a host predicted by Sherlock. 
     if meta_r is not None:
         result_r = []
@@ -281,7 +281,7 @@ def needle_th_prediction(img_data, meta_r, meta_mixed):
         _img_data, meta_mixed = single_transient_preprocessing(img_data, meta_mixed)
         meta_mixed =  np.nan_to_num(meta_mixed)
         meta_mixed, _ = feature_reduction_for_mixed_band(meta_mixed)
-        print('test meta_mixed shape:', meta_mixed)
+
         
         for i in np.arange(5):
             model_mixed_path = NEEDLE_PATH_TH_MIX + 'seed_456_model_nor1_neurons_64_128_128_ranking_updated_lasair' + str(i)
@@ -297,7 +297,7 @@ def needle_th_prediction(img_data, meta_r, meta_mixed):
 
 
 def needle_t_prediction(img_data, meta_r, meta_mixed):
-    print('test needle_t: ', len(meta_r), len(meta_mixed))
+
     # Object with no archived host.
     if meta_r is not None:
         result_r = []
