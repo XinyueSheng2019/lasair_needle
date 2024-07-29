@@ -1,7 +1,9 @@
-target:
-	for number in 0 1 2 3 4 5 6 7 8 9;\
-		do echo $$number ; \
-		python main.py -i $$number; \
-	done
+target: x
 
-	
+x:
+	number=10 ; while [[ $$number -le 19 ]] ; do \
+        echo $$number ; \
+		python main.py -i $$number; \
+		((number = number + 1)) ; \
+    done
+	 

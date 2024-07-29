@@ -70,6 +70,7 @@ class DataAugmentation(layers.Layer):
         self.RandomRotation = layers.RandomRotation([-1*rotation, 1*rotation], fill_mode = 'nearest')
     
     def call(self, inputs):
+ 
         X = self.Resizing(inputs)
         X = self.RandomFlip(X)
         X = self.RandomRotation(X)

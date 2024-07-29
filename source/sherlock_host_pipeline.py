@@ -5,10 +5,30 @@ import pandas as pd
 import os
 import re
 import json
+from ztf_mag_pipeline import get_json 
 
 
 
 token = 'f7b4b64c53168512a4bcba06827c6c0015e9c9f6'
+
+def get_potential_host_from_json(obj, mag_path):
+    obj_mag_path = mag_path + '/' + str(obj) + '.json'
+    if os.path.exists(obj_mag_path):
+        f = open(obj_mag_path)
+        om = json.load(f)
+        f.close()
+    else:
+        om = get_json(obj, mag_path)
+
+    if 'sherlock' in om.keys():
+        raDeg, decDeg = om['sherlock']['raDeg'], om['sherlock']['decDeg']
+        return raDeg, decDeg
+    else:
+        return None, None
+        
+
+
+    
 
 def get_potential_host(obj, ra, dec, ori_df_path):
     print(obj)

@@ -4,7 +4,8 @@ import requests
 from astropy import coordinates as coords
 from astropy import units as u
 import pandas as pd
-import json
+import json, re, os
+from cal_extinction import ext
 import warnings
 warnings.filterwarnings("ignore") 
 
@@ -29,10 +30,10 @@ def PS1catalog_host(_id, _ra, _dec, radius = 0.00139, save_path = None):
     queryurl += '&nDetections.gte=6&pagesize=10000' # APMag
     print(queryurl)
     # print('\nQuerying PS1 for reference stars via MAST...\n')
-    query = requests.get(queryurl, timeout=5)
+    query = requests.get(queryurl, timeout=20)
     results = query.json()
   except:
-    return 1
+    return 0
 
   if len(results['data']) >= 1:
     data = np.array(results['data'])
@@ -52,7 +53,7 @@ def PS1catalog_host(_id, _ra, _dec, radius = 0.00139, save_path = None):
 
     if len(data) < 1:
       print('no data after filtering out -999 and failing star-galaxy separation.')
-      return 1
+      return 0
 
     # if there is no valid mag in a row, remove it
     # data = data[((data[:,2]>-999) | (data[:,3]>-999) | (data[:,4]>-999) | (data[:,5]>-999) 
@@ -83,6 +84,10 @@ def PS1catalog_host(_id, _ra, _dec, radius = 0.00139, save_path = None):
       # add g-r and r-i columns
       data2 = np.array(data2)
       wdata = pd.DataFrame(data2, columns = ['ra', 'dec', 'gPSF', 'gPSFerr', 'rPSF', 'rPSFerr', 'iPSF', 'iPSFerr', 'zPSF', 'zPSFerr', 'yPSF', 'yPSFerr', 'gAp', 'gAperr', 'rAp', 'rAperr', 'iAp', 'iAperr', 'zAp', 'zAperr', 'yAp', 'yAperr'])
+      exts = ext(_ra, _dec)
+      for i in ['g', 'r', 'i', 'z', 'y']:
+        wdata[f'{i}PSF'] = wdata[f'{i}PSF'] - exts[f'PS_{i}']
+        wdata[f'{i}Ap'] = wdata[f'{i}Ap'] - exts[f'PS_{i}']
 
       wdata['g-r_PSF'] = wdata['gPSF'] - wdata['rPSF']
       wdata['r-i_PSF'] = wdata['rPSF'] - wdata['iPSF']
@@ -101,11 +106,11 @@ def PS1catalog_host(_id, _ra, _dec, radius = 0.00139, save_path = None):
       return 1
     else:
       print('Field not good results')
-      return 1 
+      return 0
   else:
     # sys.exit('Field not in PS1! Exiting') 
     print('Field not in PS1! Exiting',_id, ' ',  _ra, _dec )
-    return 1
+    return 0
 
 
 
@@ -121,3 +126,63 @@ def get_host_from_magfile(ZTF_path, mag_path):
 
 
 
+
+if __name__ == '__main__':
+
+  objs_path = '/Users/xinyuesheng/Documents/astro_projects/data/mag_sets_v4'
+  directory = '/Users/xinyuesheng/Documents/astro_projects/data/host_info_r5/'
+
+  obj_files = os.listdir(objs_path)
+  for i in obj_files: 
+    if i.startswith('ZTF'):
+      obj = i.strip('.json')
+      print(obj)
+      host_ra, host_dec = get_host_from_magfile(i, objs_path)
+      PS1catalog_host(obj, host_ra, host_dec, radius = 0.00139, save_path = directory)
+
+  # obj_re = re.compile('ZTF')
+  # PS1catalog_host(_id = 'ZTF20abnorit', _ra = 171.358461, _dec= 27.440620, radius = 0.00139, save_path = directory)
+  # PS1catalog_host(_id = 'ZTF22aaddwbo', _ra = 208.492598, _dec= 50.041792, radius = 0.00139, save_path = directory)
+    # sqrt((103.76971602-103.769741)**2 + (12.63415068-12.634161)**2)/3600
+    # sqrt((208.492598-208.49249013)**2 + (50.04180214-50.041792)**2)/3600
+
+
+  # if not os.path.exists(directory):
+  #     os.makedirs(directory)
+
+
+  # host_path = '../../data/ztf_sherlock_matches/ztf_sherlock_host.csv'
+  # host_df = pd.read_csv(host_path)
+
+  # new_TDE_df = pd.read_csv('../../data/TDE_20221017.csv')
+  # new_TDEs = new_TDE_df['object_id'].tolist()
+
+
+  # radius = 0.00139
+
+  # n = 0
+  # while n < len(host_df):
+  #   obj_id = host_df['object_id'][n]
+  #   if obj_id not in new_TDEs:
+  #     ra, dec = host_df['raDeg'][n], host_df['decDeg'][n]
+  #     PS1catalog_host(obj_id, ra, dec, radius, save_path = directory)
+  #   n += 1
+
+  # n = 0
+  # while n < len(new_TDE_df):
+  #   obj_id = new_TDE_df['object_id'][n]
+  #   m_path = objs_path + obj_id + '/image_meta.json'
+  #   m = open(m_path, 'r')
+  #   jfile = json.loads(m.read())
+  #   ra, dec =  jfile['ra'], jfile['dec']
+  #   m.close()
+  #   PS1catalog_host(obj_id, ra, dec, radius, save_path = directory)
+  #   n += 1
+
+
+
+
+#   print(f'starting computations on {cpu_count()} cores')
+
+#   with Pool() as pool:
+#       pool.starmap(PS1catalog, zip(df['transient_object_id'].tolist(), df['raDeg'].tolist(), df['decDeg'].tolist(), np.repeat(25, len(df)), np.repeat(8, len(df)), np.repeat(directory, len(df))))

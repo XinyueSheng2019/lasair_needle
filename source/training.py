@@ -25,6 +25,11 @@ import csv
 import json
 from datetime import datetime
 from transient_model import TransientClassifier, LossHistory
+import wandb
+from wandb.integration.keras import WandbMetricsLogger, WandbModelCheckpoint
+
+
+
 
 def train_with_kfold(train_imageset, train_metaset, train_labels, test_imageset, test_metaset, test_labels, label_dict, neurons= [128,128,128], res_cnn_group = None, batch_size = 32, epoch = 100, learning_rate = 0.00035, k_fold = True, n_splits = 5, model_name = None):
     unique, counts = np.unique(test_labels, return_counts=True)
@@ -80,14 +85,43 @@ def train_with_kfold(train_imageset, train_metaset, train_labels, test_imageset,
     plot_loss(kfold_history,  model_path+'/val_loss.png')
 
 
-def train(train_imageset, train_metaset, train_labels, test_imageset, test_metaset, test_labels, label_dict, neurons= [128,128,128], res_cnn_group = None, batch_size = 32, epoch = 100, learning_rate = 0.00035, model_name = None):
 
+def train(train_imageset, train_metaset, train_labels, test_imageset, test_metaset, test_labels, feature_importances, label_dict, neurons= [128,128,128], res_cnn_group = None, meta_only = False, batch_size = 32, epoch = 100, learning_rate = 0.00035, model_name = None, note = str):
+
+
+
+    # start a new wandb run to track this script
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="needle_classifier",
+        name = model_name.split('/')[-1],
+        mode = 'online',
+
+        # track hyperparameters and run metadata
+        config={
+        "learning_rate": learning_rate,
+        "architecture": "CNN+DNN",
+        "dataset": "ztf_bts",
+        "epochs": epoch,
+        "batchsize": batch_size,
+        "meta_only": meta_only,
+        "meta_size": train_metaset.shape[-1],
+        "res_cnn_group": res_cnn_group,
+        "group": model_name.split('/')[-2],
+        "note": note,
+        "neurons": neurons
+
+        }
+    )
+
+    print(model_name.split('/')[-1])
     unique, counts = np.unique(test_labels, return_counts=True)
     print('test: ', dict(zip(unique, counts)))
 
     unique, counts = np.unique(train_labels, return_counts=True)
     print('train: ', dict(zip(unique, counts)))
 
+    print(train_imageset.shape, train_metaset.shape)
 
     current_time = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
     
@@ -96,7 +130,7 @@ def train(train_imageset, train_metaset, train_labels, test_imageset, test_metas
         class_weight[i] = train_labels.shape[0]/len(np.where(train_labels.flatten()==i)[0])
 
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate = learning_rate,   #0.00035
+                initial_learning_rate = wandb.config.learning_rate, 
                 decay_steps=100,
                 decay_rate=0.95,
                 staircase=True)
@@ -105,10 +139,11 @@ def train(train_imageset, train_metaset, train_labels, test_imageset, test_metas
     earlystop = EarlyStopping(monitor = 'val_loss', patience = 8)
 
     history = LossHistory()
+    
     if res_cnn_group == None:
-        TCModel = TransientClassifier(label_dict, N_image = 60, dimension = train_imageset.shape[-1], neurons = neurons )
+        TCModel = TransientClassifier(label_dict, N_image = 60, image_dimension = train_imageset.shape[-1], meta_dimension = train_metaset.shape[-1], neurons = neurons, meta_only= wandb.config.meta_only, feature_importance=feature_importances)
     else:
-        TCModel = TransientClassifier(label_dict, N_image = 60, dimension = train_imageset.shape[-1], neurons = neurons, res_cnn_group = res_cnn_group, Resnet_op = True)
+        TCModel = TransientClassifier(label_dict, N_image = 60, image_dimension = train_imageset.shape[-1],  meta_dimension = train_metaset.shape[-1], neurons = neurons, res_cnn_group = wandb.config.res_cnn_group, Resnet_op = True, feature_importance=feature_importances)
     
     TCModel.build(input_shape = {'image_input':(None, train_imageset.shape[1], train_imageset.shape[2], train_imageset.shape[-1]), 'meta_input': (None, train_metaset.shape[-1])})
     TCModel.summary()
@@ -119,10 +154,27 @@ def train(train_imageset, train_metaset, train_labels, test_imageset, test_metas
 
 
     TCModel.compile(optimizer=tf.keras.optimizers.Adam(learning_rate = lr_schedule), loss=tf.keras.losses.SparseCategoricalCrossentropy())
-    TCModel.fit({'image_input': train_imageset, 'meta_input': train_metaset}, train_labels, shuffle = True, 
-                    epochs=epoch, batch_size = batch_size, callbacks=[earlystop,history], class_weight = class_weight, validation_data = ({'image_input': test_imageset, 'meta_input': test_metaset}, test_labels)
-                    )  
+    TCModel.fit(
+                {'image_input': train_imageset, 'meta_input': train_metaset}, train_labels,
+                shuffle=True,
+                epochs=wandb.config.epochs,
+                batch_size=wandb.config.batchsize,
+                callbacks=[
+                    earlystop,
+                    history,
+                    WandbMetricsLogger(log_freq=5),
+                    WandbModelCheckpoint("models")
+                ],
+                class_weight=class_weight,
+                validation_data=(
+                    {'image_input': test_imageset, 'meta_input': test_metaset}, test_labels
+                ),
+                use_multiprocessing=True
+            )
+
     TCModel.evaluate({'image_input': test_imageset, 'meta_input': test_metaset}, test_labels)
+
+
     if model_name is None:
         model_path = 'models/models_nor_' + current_time
     else:
@@ -130,18 +182,23 @@ def train(train_imageset, train_metaset, train_labels, test_imageset, test_metas
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     TCModel.save(model_path, save_format='tf')
+
+
+    
     cm = TCModel.plot_CM(test_imageset, test_metaset, test_labels, save_path = model_path)
-    cm_csv = model_path + '/results_cm.csv'
-    with open(cm_csv, 'a+') as f:
-        writer = csv.writer(f)
-        writer.writerow(cm)
-    f.close()
+    # cm_csv = model_path + '/results_cm.csv'
+    # with open(cm_csv, 'a+') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerow(cm)
+    # f.close()
 
     # print(history)
     with open(model_path + '/loss_record.txt', 'w') as f:
         f.write(str(history.epoch_loss)+'\n'+str(history.epoch_val_loss)+'\n')
     f.close()
 
+    # wandb.log({ "epoch_loss": history.epoch_loss, "epoch_val_loss": history.epoch_val_accuracy})
+    wandb.finish()
 
 def StratifiedKFold(y, n_splits = 5, shuffle = True):
     '''

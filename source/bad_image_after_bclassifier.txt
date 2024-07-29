@@ -1,0 +1,12 @@
+['/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20aadxrvb', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20abdtiti', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20aciaxil', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF18abxhsyn', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF18aarunub', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20abdxyae', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF21abothvq', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20aakdppm', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF19adbnfne', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF21abqgrqd', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF20adadmsg', 
+'/Users/xinyuesheng/Documents/astro_projects/data/image_sets_v3/ZTF18abebzog']
