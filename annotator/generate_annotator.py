@@ -5,7 +5,6 @@ from astropy.time import Time
 import numpy as np
 sys.path.append("../source") 
 import build_dataset
-import ztf_image_pipeline 
 from host_meta_pipeline import PS1catalog_host
 from preprocessing import single_transient_preprocessing, feature_reduction_for_mixed_band, feature_reduction_for_mixed_band_no_host, apply_data_scaling
 from tensorflow.keras import models
