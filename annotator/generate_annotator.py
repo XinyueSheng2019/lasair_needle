@@ -128,40 +128,42 @@ def get_obj_image(image_urls, obsjd_path, BClassifier):
     ref_filename = os.path.join(obsjd_path, 'ref_peak.fits')
     comb_data = None
     i = 0
-    
-    while i < len(image_urls):
-        print(image_urls[i])
-        # Download science and reference images
-        os.system(f'curl -o {sci_filename} {image_urls[i]["Science"]}')
-        os.system(f'curl -o {ref_filename} {image_urls[i]["Template"]}')
-        
-        # Check if the downloaded files are valid
-        if os.path.getsize(sci_filename) < 800 or os.path.getsize(ref_filename) < 800:
-            i += 1
-            continue
-        
-        # Load FITS data
-        sci_data = build_dataset.get_shaped_image_simple(fits.getdata(sci_filename))
-        ref_data = build_dataset.get_shaped_image_simple(fits.getdata(ref_filename))
-        
-        # Check shapes of the images
-        if build_dataset.check_shape(sci_data) and build_dataset.check_shape(ref_data):
-            # Normalize and reshape the images
-            sci_data = build_dataset.img_reshape(build_dataset.image_normal(build_dataset.zscale(sci_data))) 
-            ref_data = build_dataset.img_reshape(build_dataset.image_normal(build_dataset.zscale(ref_data)))
+    if image_urls is None:
+        return comb_data
+    else:
+        while i < len(image_urls):
+            print(image_urls[i])
+            # Download science and reference images
+            os.system(f'curl -o {sci_filename} {image_urls[i]["Science"]}')
+            os.system(f'curl -o {ref_filename} {image_urls[i]["Template"]}')
             
-            # Check the quality of the images
-            if build_dataset.check_quality(BClassifier, sci_data) and build_dataset.check_quality(BClassifier, ref_data):  
-                comb_data = np.concatenate((sci_data, ref_data), axis=-1)
-                break 
+            # Check if the downloaded files are valid
+            if os.path.getsize(sci_filename) < 800 or os.path.getsize(ref_filename) < 800:
+                i += 1
+                continue
+            
+            # Load FITS data
+            sci_data = build_dataset.get_shaped_image_simple(fits.getdata(sci_filename))
+            ref_data = build_dataset.get_shaped_image_simple(fits.getdata(ref_filename))
+            
+            # Check shapes of the images
+            if build_dataset.check_shape(sci_data) and build_dataset.check_shape(ref_data):
+                # Normalize and reshape the images
+                sci_data = build_dataset.img_reshape(build_dataset.image_normal(build_dataset.zscale(sci_data))) 
+                ref_data = build_dataset.img_reshape(build_dataset.image_normal(build_dataset.zscale(ref_data)))
+                
+                # Check the quality of the images
+                if build_dataset.check_quality(BClassifier, sci_data) and build_dataset.check_quality(BClassifier, ref_data):  
+                    comb_data = np.concatenate((sci_data, ref_data), axis=-1)
+                    break 
+                else:
+                    i += 1
+                    continue
             else:
                 i += 1
                 continue
-        else:
-            i += 1
-            continue
-    
-    return comb_data
+        
+        return comb_data
 
 
 
@@ -447,7 +449,7 @@ def handle_object(objectId, L, topic_out, threshold = 0.70, test = False):
             topic_out, 
             objectId, 
             classification,
-            version='test_20240729', 
+            version='needle-v1-mixed', 
             explanation=explanation, 
             classdict=classdict, 
             url='')
@@ -493,7 +495,7 @@ def test_annotator(topic_in, group_id):
     print('\n----------- END OF TEST -----------\n')
 
 def run_annotator(topic_in, group_id):
-        # kafka consumer that we can suck from
+    # kafka consumer that we can suck from
     consumer = lasair.lasair_consumer('kafka.lsst.ac.uk:9092', group_id, topic_in)
 
     # the lasair client will be used for pulling all the info about the object
@@ -507,7 +509,7 @@ def run_annotator(topic_in, group_id):
     # just get a few to start
     max_alert = 10
 
-    # annotating_objs = []
+
     n_alert = n_annotate = 0
     while n_alert < max_alert:
         msg = consumer.poll(timeout=20)
@@ -519,7 +521,6 @@ def run_annotator(topic_in, group_id):
 
         jsonmsg = json.loads(msg.value())
         objectId       = jsonmsg['objectId'] 
-        # annotating_objs.append(objectId) # predict them together
 
         n_alert += 1
         n_annotate += handle_object(objectId, L, topic_out, 0.70)
