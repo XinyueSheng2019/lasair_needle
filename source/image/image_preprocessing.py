@@ -193,7 +193,10 @@ class ImagePreprocessingNeedleLasair:
         """
         Cutout image with 60x60 size and handle FITS file with different extensions.
         """
-        try: 
+        try:
+            if not os.path.exists(filename) or os.path.getsize(filename) < 1024:
+                return None, None
+
             with fits.open(filename, ignore_missing_end=True) as f:
                 # print('-------------------test header data: ', f[0].header)
                 if filename.endswith('fz'):
@@ -300,7 +303,7 @@ class ImagePreprocessingNeedleLasair:
         good_ref, good_hdr = None, None
         bad_ref, bad_hdr = None, None
         i = 0
-        while i < len(self.image_urls):
+        while i < 5 and i < len(self.image_urls):
             ref_url = self.image_urls[i]['Template']
             os.system(f'curl -o {ref_filename} {ref_url}')
             data, hdr = self._get_header_data(ref_filename)
@@ -326,7 +329,7 @@ class ImagePreprocessingNeedleLasair:
         bad_sci, bad_hdr = None, None
         i = 0
         sci_filename = os.path.join(self.obj_path, 'sci_peak.fits')
-        while i < len(self.image_urls):
+        while i < 5 and i < len(self.image_urls):
             sci_url = self.image_urls[i]['Science']
             os.system(f'curl -o {sci_filename} {sci_url}')
             sci_data, sci_hdr = self._get_header_data(sci_filename)
@@ -433,20 +436,22 @@ class ImagePreprocessingNeedleLasair:
                 if image_flags['science'] < 1 or image_flags['reference'] < 1:
                     
                     if image_flags['science'] == 1 and image_flags['reference'] == -1:
-                        restore_score = img_restoration._SSIM_restore(is_sci = False , threshold = 0.2)
-                        # if display:
-                        #     if img_restoration.sci_data is not None and img_restoration.ref_data is not None: 
-                        #         display_image_pair(img_restoration.sci_data, img_restoration.ref_data, titles=None)
+                        try:
+                            restore_score = img_restoration._SSIM_restore(is_sci = False , threshold = 0.2)
+                        except (ValueError, IndexError) as exc:
+                            print(f'SSIM restore failed for {self.ztf_object}: {exc}')
+                            restore_score = 0.0
                             
                     
                     elif image_flags['science'] == -1 and image_flags['reference'] == 1:
-                        restore_score = img_restoration._SSIM_restore(is_sci = True , threshold = 0.2)
-                        # if display:
-                        #     if img_restoration.sci_data is not None and img_restoration.ref_data is not None: 
-                        #         display_image_pair(img_restoration.sci_data, img_restoration.ref_data, titles=None)
+                        try:
+                            restore_score = img_restoration._SSIM_restore(is_sci = True , threshold = 0.2)
+                        except (ValueError, IndexError) as exc:
+                            print(f'SSIM restore failed for {self.ztf_object}: {exc}')
+                            restore_score = 0.0
             
                     else:
-                        # print('The science and reference images are both bad quality.')
+                        print('The science and reference images are both bad quality.')
                         restore_score = 0.0
                     
                 else:

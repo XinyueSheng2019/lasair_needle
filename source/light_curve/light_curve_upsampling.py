@@ -6,19 +6,19 @@ from astropy.coordinates import Distance
 import extinction
 from extinctions import reddening
 import warnings
-from config import *
+# from config import *
 from utils import *
 import multiprocessing as mp
-from typing import Tuple, Optional, List, Union
+# from typing import Tuple, Optional, List, Union
 from astropy.stats import sigma_clip
 from scipy.interpolate import UnivariateSpline
-
+from settings import MAPSDIR
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 
 
 def ext(ra,dec):
-    red = (reddening.Reddening(ra, dec)).query_local_map(dustmap='sfd')*0.86
+    red = (reddening.Reddening(ra, dec, map_dir=MAPSDIR, loadmaps=False)).query_local_map(dustmap='sfd')*0.86
     AV = 3.1*float(str(red)[1:-1])
     
     wave = np.array([4829.50, 6463.75, 4900.12, 6241.27, 7563.76, 8690.10, 9644.63]) 
@@ -161,9 +161,9 @@ class NeedleMetaPipeline:
         
         mask = time_diff <= universal_gap_limit 
         # get the index of the mask, remove the left-hand side.  TODO
-        if np.any(mask) == False:
-            mask_idx = np.where(mask == False)[0] 
-            self.lc_data = self.lc_data.iloc[mask_idx,:].reset_index(drop=True)
+        if len(time_diff) > 0 and not np.any(mask):
+            mask_idx = np.where(~mask)[0] 
+            self.lc_data = self.lc_data.iloc[mask_idx].reset_index(drop=True)
     
         for band in ['ztfg', 'ztfr']:
         
@@ -174,11 +174,11 @@ class NeedleMetaPipeline:
                 time_diff = np.diff(band_mjd)
                 # time_diff = np.append(time_diff, 0)  # Aligns length with band_mjd
                 mask = time_diff <= band_gap_limit
-                if np.any(mask) == False:
-                    mask_idx = np.where(mask == False)[0]
+                if len(time_diff) > 0 and not np.any(mask):
+                    mask_idx = np.where(~mask)[0]
                     print('mask_idx_band: ', mask_idx)
-                    band_data = band_data.iloc[mask_idx,:].reset_index(drop=True) # get the index of the mask, remove the left-hand side.  TODO
-                    band_mjd = band_mjd.iloc[mask_idx,:].reset_index(drop=True)  # Keep time and mag in sync
+                    band_data = band_data.iloc[mask_idx].reset_index(drop=True)
+                    band_mjd = band_mjd.iloc[mask_idx].reset_index(drop=True)
                 
             # Check if we have enough data points for spline fitting (minimum 4 for cubic spline)
             if len(band_data) < 4:

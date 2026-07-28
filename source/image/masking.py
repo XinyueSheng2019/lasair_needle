@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 from scipy.ndimage import binary_dilation, rotate, label
 from sklearn.cluster import DBSCAN
-from quality_classification_tf.quality_classification import QualityClassification
+from quality_classification.quality_classification import QualityClassification
 from utils import get_noise_distribution, show_images
 
 

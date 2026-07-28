@@ -6,7 +6,7 @@ class BasicConfig:
         self._task = 'quality_classification'
         self._train_dataset_path = 'dataset/train_image_set_fixed.hdf5'
         self._test_dataset_path = 'dataset/test_image_set_fixed.hdf5'
-        self._checkpoint_path = os.path.join(current_dir, 'quality_check_checkpoint/')
+        self._checkpoint_path = os.path.join(current_dir, 'checkpoints/')
         self._results_path = 'quality_check_results/'
         self._task_id = 'fixeddata'
         self._model = 'ResNet'

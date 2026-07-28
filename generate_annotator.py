@@ -1,18 +1,19 @@
-import json, sys, settings, os
-import lasair_configs
+import json, sys, os
+from settings import *
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "source"))
 sys.path.insert(0, PROJECT_ROOT)
 import lasair
-from astropy.io import fits
+
 from astropy.time import Time
 import numpy as np
 import logs
 from needle_stream.get_input import *
 from needle_stream.get_predict import *
+from needle_stream.preprocessing import apply_offset_tde_gate, get_host_offset_arcsec
 from datetime import datetime
 from settings import *
-import json
 
 
 
@@ -90,8 +91,7 @@ def update_records(objectId=list, classdict=dict, classification=str):
 
 
 
-def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold = 0.70, test = False): 
-    # TODO: check the threshold, separately for TDE and SLSN-I, purity 30-50%
+def handle_object(objectId=str, L=lasair.lasair_client, threshold = 0.70, test = False): 
 
     def check_tns_update():
         if test: # test object so ignore TNS update.
@@ -137,7 +137,8 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
                 return False
 
 
-    def remove_agn_like(): # function in test
+
+    def remove_agn_like(candidates): # function in test
         #  this function is for objects labelled as NT, orphan or SN, but might be recurrent AGN. We remove them at this stage, cautiously.
 
         def is_changing(n=5, threshold = 0.2):
@@ -166,12 +167,12 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
         # only remain SN-like candidates, if for all window_size, the std of the candidates is less than threshold, it is assumed to be AGN.
         sorted_candidates = sorted(objectInfo['candidates'], key=lambda x: x['mjd'])
 
-        if is_rising() or is_declining():
-            return False
-        elif check_std():
-            return True
-        else:
-            return False
+        # if is_rising() or is_declining():
+        #     return False
+        # elif check_std():
+        #     return True
+        # else:
+        #     return False
 
 
     # from the objectId, we can get all the info that Lasair has
@@ -189,7 +190,7 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
     if check_tns_update() or remove_unvalid_object() or remove_fading() or remove_long():
         return 0
     
-    img_data, meta_r, meta_mixed, findhost = collect_data_from_lasair(objectId = objectId, objectInfo = objectInfo)
+    img_data, _, meta_mixed, findhost = collect_data_from_lasair(objectId = objectId, objectInfo = objectInfo)
 
 
     if img_data is None:
@@ -197,26 +198,39 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
         return 0
 
 
-    
     if findhost:
         result_mixed = needle_th_prediction(img_data, meta_mixed)
+        calibrated_thresholds = CALIBRATED_THRESHOLDS['hosted']
         SN_mix = float(result_mixed[0][0]) if result_mixed is not None else None
         SLSN_mix = float(result_mixed[0][1]) if result_mixed is not None else None
         TDE_mix = float(result_mixed[0][2]) if result_mixed is not None else None
     else:
         log.write('object %s host meta not found, use binary NEEDLE-T\n' % objectId)
         result_mixed = needle_t_prediction(img_data, meta_mixed)
+        calibrated_thresholds = CALIBRATED_THRESHOLDS['hostless']
         SN_mix = float(result_mixed[0][0]) if result_mixed is not None else None
         SLSN_mix = float(result_mixed[0][1]) if result_mixed is not None else None
         TDE_mix = 0.0 if result_mixed is not None else None
+
+    if TDE_mix is not None:
+        TDE_mix = apply_offset_tde_gate(
+            TDE_mix,
+            get_host_offset_arcsec(objectInfo),
+            object_id=objectId,
+            log=log,
+            max_offset_arcsec=OFFSET_TDE_MAX_ARCSEC,
+        )
     
-    classdict = {'SN': SN_mix, 'SLSN-I': SLSN_mix, 'TDE': TDE_mix}
+    classdict = {'SN': 1 - SLSN_mix - TDE_mix, 'SLSN-I': SLSN_mix, 'TDE': TDE_mix}
     print('classdict: ', classdict)
 
-    # Decide final classification based on the maximum class probability
+    # Decide final classification using per-class calibrated thresholds
     class_values = list(classdict.values())
-    if np.max(class_values) >= threshold: 
-        classification = LABEL_LIST[np.argmax(class_values)]
+    best_idx = int(np.argmax(class_values))
+    best_class = LABEL_LIST[best_idx]
+    class_threshold = calibrated_thresholds.get(best_class, threshold)
+    if class_values[best_idx] >= class_threshold:
+        classification = best_class
     else:
         classification = 'unclear'
     
@@ -225,6 +239,7 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
 
     # Wrap scalars as single-element lists for update_to_lasair
     update_to_lasair(
+        L,
         [objectId],
         [classification],
         [explanation],
@@ -232,45 +247,50 @@ def handle_object(objectId=str, L=lasair.lasair_client, topic_out=str, threshold
         [None],
         test,
     )
+    return 1
 
 
     
 
-def update_to_lasair(objectId=list, classification=list, explanation=list, classdict=dict, url = None or list, test = False):
+def update_to_lasair(L, objectId=list, classification=list, explanation=list, classdict=dict, url=None, test=False):
     # push the annotation to the Lasair database
+    lasair_web_base = LASAIR_ENDPOINT.rstrip('/').removesuffix('/api')
+
     if not test:
         for i in range(len(objectId)):
+            annotation_url = url[i] if url and url[i] else f"{lasair_web_base}/object/{objectId[i]}/"
             L.annotate(
-                topic_out, 
-                objectId[i], 
-                classification[i], 
-                version='needle-v1-mixed', 
-                explanation=explanation[i], 
-                classdict=classdict[i], 
-                url=url[i]) if url is not None else None
+                TOPIC_OUT,
+                objectId[i],
+                classification[i],
+                version='needle-v2',
+                explanation=explanation[i],
+                classdict=classdict[i],
+                url=annotation_url,
+            )
     else:
         for i in range(len(objectId)):
+            annotation_url = url[i] if url and url[i] else f"{lasair_web_base}/object/{objectId[i]}/"
             msg = (
                 f"TEST: \n"
                 f"{objectId[i]}\n"
                 f"{classification[i]}\n"
                 f"{explanation[i]}\n"
                 f"{classdict[i]}\n"
-                f"{url[i]}\n"
+                f"{annotation_url}\n"
             )
             print(msg)
             log.write(msg)
     return 1
 
 
-def test_annotator(topic_in, group_id, test_objectId = None):
+def test_annotator(test_objectId = None):
     # run this test function after each upgrade, without updating to Lasair database.
 
-    consumer = lasair.lasair_consumer('kafka.lsst.ac.uk:9092', group_id, topic_in)
+    consumer = lasair.lasair_consumer('kafka.lsst.ac.uk:9092', GROUP_ID, TOPIC_IN)
 
     # Use Lasair-specific configuration (API token, output topic)
-    L = lasair.lasair_client(lasair_configs.API_TOKEN)
-    topic_out = lasair_configs.TOPIC_OUT
+    L = lasair.lasair_client(API_TOKEN, endpoint=LASAIR_ENDPOINT)
 
     if test_objectId is None:
         
@@ -292,44 +312,47 @@ def test_annotator(topic_in, group_id, test_objectId = None):
             print('PROCESS OBJECT %s \n' % objectId)
             # annotating_objs.append(objectId) # predict them together
             n_alert += 1
-            n_annotate += handle_object(objectId, L, topic_out, 0.70, True)
+            n_annotate += handle_object(objectId, L, 0.70, True)
     else:
-        handle_object(test_objectId, L, topic_out, 0.70, True)
+        handle_object(test_objectId, L, 0.70, True)
     
 
     print('\n----------- END OF TEST -----------\n')
 
 
-def run_annotator(topic_in, group_id):
+def run_annotator(parallel = False):
     # kafka consumer that we can suck from
-    consumer = lasair.lasair_consumer('kafka.lsst.ac.uk:9092', group_id, topic_in)
+    consumer = lasair.lasair_consumer('kafka.lsst.ac.uk:9092', GROUP_ID, TOPIC_IN)
 
     # the lasair client will be used for pulling all the info about the object
     # and for annotating it
-    L = lasair.lasair_client(lasair_configs.API_TOKEN)
-
-    # TOPIC_OUT is an annotator owned by a user. API_TOKEN must be that users token.
-    topic_out = lasair_configs.TOPIC_OUT
+    L = lasair.lasair_client(API_TOKEN, endpoint=LASAIR_ENDPOINT)
 
 
     # just get a few to start
-    max_alert = 50
-
-
-    n_alert = n_annotate = 0
-    while n_alert < max_alert:
-        msg = consumer.poll(timeout=20)
-        if msg is None:
-            break
-        if msg.error():
-            print(str(msg.error()))
-            break
-
-        jsonmsg = json.loads(msg.value())
-        objectId       = jsonmsg['objectId'] 
-
-        n_alert += 1
-        n_annotate += handle_object(objectId, L, topic_out, 0.70)
+    max_alert = 200
+    n_annotate = 0
+    if parallel:
+        import concurrent.futures
+        for batch in range(max_alert // 10):
+            objectIds = [json.loads(consumer.poll(timeout=20).value())['objectId'] for _ in range(10) if consumer.poll(timeout=20) is not None]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(handle_object, objectId, L, 0.70, False) for objectId in objectIds]
+                results = [future.result() for future in futures]
+                n_annotate += sum(results)
+    else:
+        n_alert = 0
+        while n_alert < max_alert:
+            msg = consumer.poll(timeout=20)
+            if msg is None:
+                break
+            if msg.error():
+                print(str(msg.error()))
+                break
+            jsonmsg = json.loads(msg.value())
+            objectId       = jsonmsg['objectId'] 
+            n_alert += 1
+            n_annotate += handle_object(objectId, L, 0.70)
 
 
     logs.close_log()
@@ -342,10 +365,10 @@ if __name__ == '__main__':
 
     # first we set up pulling the stream from Lasair
     # a fresh group_id gets all, an old group_id starts where it left off
-    group_id = lasair_configs.GROUP_ID
+
 
     # a filter from Lasair, example 'lasair_2SN-likecandidates'
-    topic_in = lasair_configs.TOPIC_IN
+  
 
-    # run_annotator(topic_in, group_id)
-    test_annotator(topic_in, group_id, test_objectId = 'ZTF24abrfiya')
+    run_annotator(parallel = False)
+    # test_annotator(test_objectId = 'ZTF26abjqqyj')

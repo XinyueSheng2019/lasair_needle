@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity as ssim
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
-from quality_classification_tf.quality_classification import QualityClassification
+from quality_classification.quality_classification import QualityClassification
 from utils import get_noise_distribution
 from astropy.nddata import Cutout2D
 from astropy.nddata.utils import NoOverlapError
@@ -59,9 +59,46 @@ class ImageRestoration:
 
     def _check_shape(self, img):
         """
-        Check if the image has the shape (60, 60) and does not contain only NaN values.
+        Check if the image has the shape (60, 60) and does not contain any NaN values.
         """
-        return img is not None and img.shape == (60, 60) and not np.all(np.isnan(img))
+        return img is not None and img.shape == (60, 60) and not np.any(np.isnan(img))
+
+    def _border_mask(self, img, margin=3):
+        """Return a boolean mask for the image border (margin pixels on each side)."""
+        mask = np.zeros(img.shape, dtype=bool)
+        if margin > 0:
+            mask[:margin, :] = True
+            mask[-margin:, :] = True
+            mask[:, :margin] = True
+            mask[:, -margin:] = True
+        return mask
+
+    def _has_border_nans(self, img, margin=3):
+        """Check if any NaN values lie on the image border."""
+        border = self._border_mask(img, margin)
+        return np.any(np.isnan(img[border]))
+
+    def _fill_border_nans(self, img, margin=3):
+        """
+        Fill border NaNs with the nanmedian of interior (good) pixels.
+        Returns the filled image and whether any border NaNs were filled.
+        """
+        img = img.copy()
+        border = self._border_mask(img, margin)
+        border_nans = border & np.isnan(img)
+        if not np.any(border_nans):
+            return img, False
+
+        interior = ~border
+        good_pixels = img[interior & ~np.isnan(img)]
+        if good_pixels.size == 0:
+            good_pixels = img[~np.isnan(img)]
+        if good_pixels.size == 0:
+            return img, False
+
+        fill_value = np.nanmedian(good_pixels)
+        img[border_nans] = fill_value
+        return img, True
 
 
     def quality_check(self, image):
@@ -69,8 +106,9 @@ class ImageRestoration:
         check the quality of the image
         """
         image_copy = image.copy()
-        if np.isnan(image_copy).any():
-            return 0
+        if np.any(np.isnan(image_copy)):
+            image_copy = np.nan_to_num(image_copy, nan = np.nanmean(image_copy))
+            print('-------------------test and fill the nan with the mean value of the image: ', image_copy)
         if self._check_shape(image_copy):
             result = self.__quality_check_model.run(image_copy)
             return result
@@ -92,47 +130,69 @@ class ImageRestoration:
         '''
         This function is used to restore the image of the transient object using SSIM method.
         It only works when two images have the same shape.
+        If SSIM fails or border NaNs remain, fill border NaNs with interior median and re-check quality.
         '''
 
-        def __match_contrast(image1, image2, diff_mask, mask1):
-            # Calculate the standard deviations
-            filling_values = image2[diff_mask == 1]
-            image1_adjusted = image1[mask1 & (diff_mask == 0)]
-            image1_std = np.nanstd(image1_adjusted)
-            image2_std = np.nanstd(image2)
+        def __match_contrast(image1, image2, replace_mask, mask1, mask2):
+            filling_values = image2[replace_mask]
+            if filling_values.size == 0:
+                return None
 
-            if image2_std == 0:
+            reference_mask = mask1 & mask2 & ~replace_mask
+            image1_adjusted = image1[reference_mask]
+            if image1_adjusted.size == 0:
+                return None
+
+            image1_std = np.nanstd(image1_adjusted)
+            image2_ref = image2[mask2]
+            image2_std = np.nanstd(image2_ref)
+
+            if not np.isfinite(image2_std) or image2_std == 0:
                 image2_std = 1e-5
-            
-            # Calculate scaling factor
+            if not np.isfinite(image1_std) or image1_std == 0:
+                image1_std = 1e-5
+
             scale_factor = image1_std / image2_std
-            
-            # Apply scaling
-            matched_value = (filling_values - np.nanmean(image2)) * scale_factor + np.nanmean(image1_adjusted)
-            matched_value = matched_value[~np.isnan(matched_value)]
-   
-            return matched_value   
- 
+            matched_value = (
+                (filling_values - np.nanmean(image2_ref)) * scale_factor
+                + np.nanmean(image1_adjusted)
+            )
+
+            if not np.all(np.isfinite(matched_value)):
+                return None
+            return matched_value
+
+        def __update_restored_image(img):
+            if is_sci:
+                self.sci_data = img
+            else:
+                self.ref_data = img
+
+        def __border_fallback(img):
+            img, filled = self._fill_border_nans(img)
+            if filled:
+                __update_restored_image(img)
+            return img
+
+        def __quality_score(img):
+            return self.__quality_check_model.run(img.copy())
+
         if is_sci:
-            image1 = self.sci_data
+            image1 = self.sci_data.copy()
             image2 = self.ref_data
         else:
-            image1 = self.ref_data
+            image1 = self.ref_data.copy()
             image2 = self.sci_data
-
 
         if image1.shape != image2.shape:
             print('the shape of the two images are not the same')
-            return 0
+            return __quality_score(__border_fallback(image1))
 
-  
         mask1 = ~np.isnan(image1)
         mask2 = ~np.isnan(image2)
 
-
         nor_image1 = self._normalize_image(image1)
         nor_image2 = self._normalize_image(image2)
-
 
         image1_filled = np.where(mask1, nor_image1, 255)
         image2_filled = np.where(mask2, nor_image2, 255)
@@ -148,20 +208,32 @@ class ImageRestoration:
             self.show_test_img(image2, 'image2')
             self.show_test_img(diff_mask, 'diff_mask')
 
-        if np.sum(diff_mask) >= 1800:
-            print('the difference is too large, return 0')
-            return 0
-       
-        image1[diff_mask == 1] = __match_contrast(image1, image2, diff_mask, mask1)
-        if self._display:
-            self.show_test_img(image1, 'restored_image')
-
-        if is_sci:
-            self.sci_data = image1
+        ssim_failed = np.sum(diff_mask) >= 1800
+        if ssim_failed:
+            print('the difference is too large, falling back to border median fill')
         else:
-            self.ref_data = image1
+            replace_mask = (diff_mask == 1) & mask1 & mask2
+            if np.any(replace_mask):
+                matched_value = __match_contrast(image1, image2, replace_mask, mask1, mask2)
+                if (
+                    matched_value is not None
+                    and matched_value.size == np.count_nonzero(replace_mask)
+                ):
+                    image1[replace_mask] = matched_value
+                    __update_restored_image(image1)
+                    if self._display:
+                        self.show_test_img(image1, 'restored_image')
+                else:
+                    print('contrast match failed, falling back to border median fill')
+                    ssim_failed = True
+            else:
+                print('no valid pixels for contrast match, falling back to border median fill')
+                ssim_failed = True
 
-        return self.__quality_check_model.run(image1.copy())
+        if ssim_failed or self._has_border_nans(image1):
+            image1 = __border_fallback(image1)
+
+        return __quality_score(image1)
    
 
 
@@ -196,8 +268,8 @@ class ImageRestoration:
         # print('img.shape: ', img.shape)
 
         if img.shape == (60, 60):
-            print('the image is already padded or good.\n')
-            return 
+            return
+
         if self.pixel_coords_target is None:
             return
 
@@ -241,6 +313,7 @@ class ImageRestoration:
             self.pixel_coords_target = [self.pixel_coords_target[0] + d3, self.pixel_coords_target[1] + d1]
             if self.pixel_coords_host is not None:
                 self.pixel_coords_host = [self.pixel_coords_host[0] + d3, self.pixel_coords_host[1] + d1]
+
 
             if is_sci:
                 self.sci_data = img

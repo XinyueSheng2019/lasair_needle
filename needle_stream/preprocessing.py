@@ -57,7 +57,7 @@ def single_untouched_preprocessing(data_path, obj_id, masking = True, has_host =
 
     # Feature reduction
     if has_host:
-        meta, _ = feature_reduction_for_mixed_band(meta)
+        meta, _ = prepare_hosted_metaset(meta)
     else:
         meta, _ = feature_reduction_for_mixed_band_no_host(meta)
     
@@ -159,7 +159,7 @@ def apply_data_scaling(metaset, scaling_file, normalize_method = 1):
     return metaset 
 
 
-def feature_reduction_for_mixed_band(metadata):
+def feature_reduction_for_mixed_band(metadata, extended_offset_features=False, offset_tde_max_arcsec=2.0):
     # mixed_nor1_add_disc_t_ext_20240628
     print(metadata.shape)
 
@@ -176,6 +176,9 @@ def feature_reduction_for_mixed_band(metadata):
     df['disc_mag_g_minus_r'] = df.apply(lambda row: 0 if row['disc_mag_g'] == 0 or row['disc_mag_r'] == 0 else row['disc_mag_g'] - row['disc_mag_r'], axis=1)
     df['colour_dff'] = df.apply(lambda row: 0 if row['peak_mag_g_minus_r'] == 0 or row['disc_mag_g_minus_r'] == 0 else row['peak_mag_g_minus_r'] - row['disc_mag_g_minus_r'], axis=1)
     df['host_tar_colour_g-r'] = df['delta_host_mag_g'] - df['delta_host_mag_r']
+    if extended_offset_features:
+        df['log_offset'] = np.log1p(df['offset'].clip(lower=0))
+        df['is_offset'] = (df['offset'] > offset_tde_max_arcsec).astype(float)
     # df = df.drop(['ratio_recent_r', 'ratio_recent_g', 'delta_t_discovery_band_r', 'delta_t_discovery_band_g'], axis = 1)
     # df = df.drop(['peak_t_g_minus_r'], axis = 1) # DEBUG because they are 0 in valid and untouched set, but not in training set.
     return df.to_numpy(), df.columns
@@ -192,6 +195,78 @@ def feature_reduction_for_mixed_band_no_host(metadata):
     # df = df.drop(['ratio_recent_r', 'ratio_recent_g', 'delta_t_discovery_band_r', 'delta_t_discovery_band_g'], axis = 1)
     # df = df.drop(['peak_t_g_minus_r'], axis = 1) # DEBUG because they are 0 in valid and untouched set, but not in training set.
     return df.to_numpy(), df.columns
+
+
+RAW_MIXED_OFFSET_IDX = 25
+
+
+def impute_meta_missing_values(meta, has_host=True, use_offset_sentinel=False, missing_offset_sentinel=99.0):
+    """Impute missing metadata values before feature reduction."""
+    meta = np.array(meta, dtype=float)
+    if has_host and meta.shape[-1] > RAW_MIXED_OFFSET_IDX and use_offset_sentinel:
+        offset_vals = meta[..., RAW_MIXED_OFFSET_IDX]
+        meta[..., RAW_MIXED_OFFSET_IDX] = np.where(
+            np.isnan(offset_vals), missing_offset_sentinel, offset_vals
+        )
+    return np.nan_to_num(meta)
+
+
+def get_host_offset_arcsec(objectInfo):
+    """Return Sherlock host-transient separation in arcsec, if available."""
+    sherlock = objectInfo.get('sherlock') or {}
+    separation = sherlock.get('separationArcsec')
+    if separation is None:
+        return None
+    return float(separation)
+
+
+def apply_offset_tde_gate(tde_prob, offset_arcsec, object_id=None, log=None, max_offset_arcsec=2.0):
+    """Suppress TDE score when angular offset exceeds the nuclear threshold."""
+    if tde_prob is None:
+        return tde_prob
+    if offset_arcsec is not None and offset_arcsec >= max_offset_arcsec:
+        msg = (
+            f'object {object_id} TDE suppressed: offset {offset_arcsec:.2f}" '
+            f'> {max_offset_arcsec}"\n'
+        )
+        if log is not None:
+            log.write(msg)
+        else:
+            print(msg, end='')
+        return 0.0
+    return tde_prob
+
+
+def _offset_feature_settings():
+    try:
+        from settings import (
+            USE_EXTENDED_OFFSET_FEATURES,
+            OFFSET_TDE_MAX_ARCSEC,
+            MISSING_OFFSET_SENTINEL_ARCSEC,
+        )
+    except ImportError:
+        return False, 2.0, 99.0
+    return USE_EXTENDED_OFFSET_FEATURES, OFFSET_TDE_MAX_ARCSEC, MISSING_OFFSET_SENTINEL_ARCSEC
+
+
+def prepare_hosted_metaset(metaset):
+    """Impute missing values and apply hosted-band feature reduction."""
+    use_extended, offset_max, missing_sentinel = _offset_feature_settings()
+    metaset = np.array(metaset, dtype=float)
+    if use_extended:
+        metaset = impute_meta_missing_values(
+            metaset,
+            has_host=True,
+            use_offset_sentinel=True,
+            missing_offset_sentinel=missing_sentinel,
+        )
+    else:
+        metaset = np.nan_to_num(metaset)
+    return feature_reduction_for_mixed_band(
+        metaset,
+        extended_offset_features=use_extended,
+        offset_tde_max_arcsec=offset_max,
+    )
 
 
 def save_feature_ranking_plot(xgb_model, feature_names, model_path):
@@ -281,17 +356,14 @@ def preprocessing_untouched(filepath, label_dict, output_path, normalize_method 
      
     # Handle NaN values AFTER label filtering (consistent with preprocessing)
     # imageset = (imageset - np.nanmean(imageset, axis=(1,2), keepdims=True)) / np.nanstd(imageset, axis=(1,2), keepdims=True)
-    imageset = np.nan_to_num(imageset)
-    metaset = np.nan_to_num(metaset)
-
-
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    # Feature reduction
+    imageset = np.nan_to_num(imageset)
     if has_host:
-        metaset, _ = feature_reduction_for_mixed_band(metaset)
+        metaset, _ = prepare_hosted_metaset(metaset)
     else:
+        metaset = np.nan_to_num(metaset)
         metaset, _ = feature_reduction_for_mixed_band_no_host(metaset)
     
     # Apply scaling - scaling_data_path MUST be provided
@@ -352,15 +424,15 @@ def preprocessing(filepath, label_dict, output_path, normalize_method = 1, scali
 
 
         train_imageset = np.nan_to_num(train_imageset)
-        train_metaset = np.nan_to_num(train_metaset)
         test_imageset = np.nan_to_num(test_imageset)
-        test_metaset = np.nan_to_num(test_metaset)
         # print('preprocess: ',train_imageset.shape, train_metaset.shape, test_imageset.shape)
         
         if has_host:
-            train_metaset, feature_names = feature_reduction_for_mixed_band(train_metaset)
-            test_metaset, _ = feature_reduction_for_mixed_band(test_metaset)
+            train_metaset, feature_names = prepare_hosted_metaset(train_metaset)
+            test_metaset, _ = prepare_hosted_metaset(test_metaset)
         else:
+            train_metaset = np.nan_to_num(train_metaset)
+            test_metaset = np.nan_to_num(test_metaset)
             train_metaset, feature_names = feature_reduction_for_mixed_band_no_host(train_metaset)
             test_metaset, _ = feature_reduction_for_mixed_band_no_host(test_metaset)
         
@@ -384,11 +456,11 @@ def preprocessing(filepath, label_dict, output_path, normalize_method = 1, scali
         # train_imageset = (train_imageset - np.nanmean(train_imageset, axis=(1,2), keepdims=True)) / np.nanstd(train_imageset, axis=(1,2), keepdims=True)
         
         train_imageset = np.nan_to_num(train_imageset)
-        train_metaset = np.nan_to_num(train_metaset)
 
         if has_host:
-            train_metaset, feature_names = feature_reduction_for_mixed_band(train_metaset)
+            train_metaset, feature_names = prepare_hosted_metaset(train_metaset)
         else:
+            train_metaset = np.nan_to_num(train_metaset)
             train_metaset, feature_names = feature_reduction_for_mixed_band_no_host(train_metaset)
 
         XGB_class_weight = get_class_weight(train_labels)

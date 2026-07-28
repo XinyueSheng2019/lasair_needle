@@ -3,11 +3,12 @@ import extinction
 from extinctions import reddening
 import numpy as np 
 import warnings
+from settings import MAPSDIR
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
-def ext(ra,dec):
-    red = (reddening.Reddening(ra, dec)).query_local_map(dustmap='sfd')*0.86
-    AV = 3.1*float(str(red)[1:-1])
+def ext(ra, dec):
+    red = reddening.Reddening(ra, dec, map_dir=MAPSDIR, loadmaps=False).query_local_map(dustmap='sfd') * 0.86
+    AV = 3.1 * float(np.asarray(red).reshape(-1)[0])
     
     wave = np.array([4829.50, 6463.75, 4900.12, 6241.27, 7563.76, 8690.10, 9644.63]) 
 
