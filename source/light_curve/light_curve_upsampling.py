@@ -217,64 +217,26 @@ class NeedleMetaPipeline:
   
         # print('Outliers removed by detrending and clipping.')
 
-    def uniform_light_curve(self, lc_data, window_size = 0.5):
+    def uniform_light_curve(self, lc_data,  window_size = 0.5):
         '''
         merge detection within the window size.
         '''
-        print('--------------------------------uniforming the light curve--------------------------------')
-
-        if not isinstance(lc_data, pd.DataFrame):
-            raise TypeError("lc_data must be a pandas DataFrame")
-            
-        if window_size <= 0:
-            raise ValueError("window_size must be positive")
-            
-        required_cols = ['time', 'mag', 'mag_err', 'band']
-        if not all(col in lc_data.columns for col in required_cols):
-            raise ValueError(f"lc_data missing required columns: {required_cols}")
-
         # Remove any duplicate rows based on all columns
-        lc_data = lc_data.drop_duplicates(subset=['time', 'mag', 'mag_err', 'band'], keep='first')
-      
-        g_data = lc_data[lc_data['band'] == 'ztfg'].reset_index(drop=True)
-        r_data = lc_data[lc_data['band'] == 'ztfr'].reset_index(drop=True)
+        photo_df = lc_data.drop_duplicates(subset=['time', 'mag', 'mag_err', 'band'], keep='first')
 
-
-        g_time_diff_idx = np.where(np.diff(g_data['time'].values) < window_size)[0]
-        r_time_diff_idx = np.where(np.diff(r_data['time'].values) < window_size)[0]
-
-        if g_time_diff_idx.size > 0 or r_time_diff_idx.size > 0:
-            if g_time_diff_idx.size > 0:
-             
-                for i in range(len(g_time_diff_idx)): 
-                    g_data.loc[g_time_diff_idx[i], 'time'] = np.mean([g_data['time'][g_time_diff_idx[i]], g_data['time'][g_time_diff_idx[i]+1]])
-                    g_data.loc[g_time_diff_idx[i], 'mag'] = np.mean([g_data['mag'][g_time_diff_idx[i]], g_data['mag'][g_time_diff_idx[i]+1]])
-                    g_data.loc[g_time_diff_idx[i], 'mag_err'] = np.mean([g_data['mag_err'][g_time_diff_idx[i]], g_data['mag_err'][g_time_diff_idx[i]+1]])
-        
-                g_data = g_data.drop(g_time_diff_idx + 1)
-        
-            if r_time_diff_idx.size > 0:
-      
-                for i in range(len(r_time_diff_idx)):
-                    r_data.loc[r_time_diff_idx[i], 'time'] = np.mean([r_data['time'][r_time_diff_idx[i]], r_data['time'][r_time_diff_idx[i]+1]])
-                    r_data.loc[r_time_diff_idx[i], 'mag'] = np.mean([r_data['mag'][r_time_diff_idx[i]], r_data['mag'][r_time_diff_idx[i]+1]])
-                    r_data.loc[r_time_diff_idx[i], 'mag_err'] = np.mean([r_data['mag_err'][r_time_diff_idx[i]], r_data['mag_err'][r_time_diff_idx[i]+1]])
-            
-                r_data = r_data.drop(r_time_diff_idx + 1)
-
-        lc_data = pd.concat([g_data, r_data]).reset_index(drop=True)
-
-        # time_diff_idx = np.where(np.diff(lc_data['time'].values) < window_size)[0]
-
-        # if time_diff_idx.size > 0:
-        #     for i in range(len(time_diff_idx)):
-        #         lc_data.loc[time_diff_idx[i], 'time'] = np.mean([lc_data['time'][time_diff_idx[i]], lc_data['time'][time_diff_idx[i]+1]])
-        #         lc_data.loc[time_diff_idx[i], 'mag'] = np.mean([lc_data['mag'][time_diff_idx[i]], lc_data['mag'][time_diff_idx[i]+1]])
-        #         lc_data.loc[time_diff_idx[i], 'mag_err'] = np.mean([lc_data['mag_err'][time_diff_idx[i]], lc_data['mag_err'][time_diff_idx[i]+1]])
-        #     lc_data = lc_data.drop(time_diff_idx + 1).reset_index(drop=True)
-
-        
-        return lc_data
+        new_photo_df = pd.DataFrame()
+        for band in ['ztfg', 'ztfr']:
+            band_data = photo_df[photo_df['band'] == band].reset_index(drop=True)
+            band_data = band_data.sort_values("time")
+            groups = (band_data["time"].diff().ge(window_size)).cumsum()
+            merged = band_data.groupby(groups).agg({
+                "time": "mean",
+                "mag": "mean",
+                "mag_err": lambda x: np.sqrt((x**2).sum()) / len(x),
+                "band": "first",
+            })
+            new_photo_df = pd.concat([new_photo_df, merged]).reset_index(drop=True)
+        return new_photo_df
        
 
     def get_light_curve_statistics(self, lc_data, peak_define = 'mag', min_detection = 2, extend_phase = 5):
